@@ -82,10 +82,13 @@ kperf service load --namespace ktest --svc-prefix ktest --range 0,3 --load-tool 
 	serviceLoadCommand.Flags().BoolVarP(&loadArgs.Verbose, "verbose", "v", false, "Service verbose result")
 	serviceLoadCommand.Flags().BoolVarP(&loadArgs.ResolvableDomain, "resolvable", "", false, "If Service endpoint resolvable url")
 	serviceLoadCommand.Flags().DurationVarP(&loadArgs.WaitPodsReadyDuration, "wait-time", "w", 10*time.Second, "Time to wait for all pods to be ready")
-	serviceLoadCommand.Flags().StringVarP(&loadArgs.LoadTool, "load-tool", "t", "default", "Select the load test tool, use internal load test tool(vegeta) by default, also support external load tool(wrk and hey, require preinstallation)")
+	serviceLoadCommand.Flags().StringVarP(&loadArgs.LoadTool, "load-tool", "t", "default", "Select the load test tool, use internal load test tool(vegeta) by default, also support external load tool(wrk, hey and k6, require preinstallation)")
 	serviceLoadCommand.Flags().StringVarP(&loadArgs.LoadConcurrency, "load-concurrency", "c", "30", "total number of workers to run concurrently for the load test tool")
 	serviceLoadCommand.Flags().StringVarP(&loadArgs.LoadDuration, "load-duration", "d", "60s", "Duration of the test for the load test tool")
 	serviceLoadCommand.Flags().StringVarP(&loadArgs.Output, "output", "o", ".", "Measure result location")
+	serviceLoadCommand.Flags().BoolVarP(&loadArgs.Https, "https", "", false, "Use https with TLS when supported by knative, only k6(load-tool) support one-way TLS for HTTPS now")
+	serviceLoadCommand.Flags().BoolVarP(&loadArgs.Insecure, "insecure", "", false, "Ignore invalid server TLS certificates")
+	serviceLoadCommand.Flags().StringVarP(&loadArgs.External, "external", "", "", "External commands for load tool")
 
 	return serviceLoadCommand
 }
@@ -213,11 +216,10 @@ func runLoadFromZero(ctx context.Context, params *pkg.PerfParams, inputs pkg.Loa
 	pdch := make(chan struct{})  // pod duration channel
 	errch := make(chan error, 1)
 
-	endpoint, err := resolveEndpoint(ctx, params, inputs.ResolvableDomain, svc)
+	endpoint, err := resolveEndpoint(ctx, params, inputs.ResolvableDomain, inputs.Https, svc)
 	if err != nil {
 		return "", loadResult, fmt.Errorf("failed to get the cluster endpoint: %w", err)
 	}
-
 	host := svc.Status.RouteStatusFields.URL.URL().Host
 
 	loadStart := time.Now()
@@ -346,7 +348,7 @@ func runExternalLoadTool(inputs pkg.LoadArgs, namespace string, svcName string, 
 	if err != nil {
 		return "", fmt.Errorf("failed to run loadCmdBuilder: %s", err)
 	}
-
+	fmt.Println("Running command: ", cmd)
 	defer func() {
 		// Delete wrk lua script
 		if strings.EqualFold(inputs.LoadTool, "wrk") {

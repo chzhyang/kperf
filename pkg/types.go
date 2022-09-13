@@ -99,6 +99,9 @@ type LoadArgs struct {
 	LoadTool              string
 	LoadDuration          string
 	LoadConcurrency       string
+	Https                 bool
+	Insecure              bool
+	External              string
 }
 
 type MeasureResult struct {
