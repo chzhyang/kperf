@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 
 	"log"
@@ -49,7 +50,9 @@ import (
 )
 
 const (
-	LoadOutputFilename = "ksvc_loading_time"
+	LoadOutputFilename   = "ksvc_loading_time"
+	K6ScriptPath         = "./k6_script_kperf.js"
+	K6ScriptTemplatePath = "templates/k6_script_template.js"
 )
 
 func NewServiceLoadCommand(p *pkg.PerfParams) *cobra.Command {
@@ -385,7 +388,6 @@ func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpo
 		cmd.WriteString(endpoint)
 		return cmd.String(), "", nil
 	}
-
 	if strings.EqualFold(inputs.LoadTool, "wrk") {
 		// creat lua script to config host of URL
 		wrkLuaFilename = "./wrk_" + namespace + "_" + svcName + ".lua"
@@ -410,8 +412,37 @@ func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpo
 		cmd.WriteString(" --latency")
 		return cmd.String(), wrkLuaFilename, nil
 	}
+	if strings.EqualFold(inputs.LoadTool, "k6") {
+		// k6 script, default in "./k6_script_kperf.js"
+		if _, err := os.Stat(K6ScriptPath); err == nil {
+			// Create k6 script from a template
+			input, err := ioutil.ReadFile(K6ScriptTemplatePath)
+			if err != nil {
+				fmt.Println(err)
+				return "", "", fmt.Errorf("read k6 script template error: %w", err)
+			}
+			err = ioutil.WriteFile(K6ScriptPath, input, 0644)
+			if err != nil {
+				fmt.Println("Error creating", K6ScriptPath)
+				fmt.Println(err)
+				return "", "", fmt.Errorf("create k6 script error: %w", err)
+			}
+		}
 
-	return "", "", fmt.Errorf("kperf only support hey and wrk now")
+		cmd.WriteString("k6 run")
+		cmd.WriteString(" -u ")
+		cmd.WriteString(inputs.LoadConcurrency)
+		cmd.WriteString(" -d ")
+		cmd.WriteString(inputs.LoadDuration)
+		cmd.WriteString(" -e KPERF_HOST ")
+		cmd.WriteString(host)
+		cmd.WriteString(" -e KPERF_ENDPOINT ")
+		cmd.WriteString(host)
+		cmd.WriteString(K6ScriptPath)
+		return cmd.String(), "", nil
+	}
+
+	return "", "", fmt.Errorf("kperf only support hey, wrk and k6 now")
 }
 
 // getReplicaResult get replicaResult by watching deployment, and append replicaResult to replicaResults
