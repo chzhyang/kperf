@@ -51,7 +51,7 @@ import (
 
 const (
 	LoadOutputFilename   = "ksvc_loading_time"
-	K6ScriptPath         = "./k6_script_kperf.js"
+	K6ScriptPath         = "k6_script_kperf.js"
 	K6ScriptTemplatePath = "templates/k6_script_template.js"
 )
 
@@ -414,17 +414,15 @@ func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpo
 	}
 	if strings.EqualFold(inputs.LoadTool, "k6") {
 		// k6 script, default in "./k6_script_kperf.js"
-		if _, err := os.Stat(K6ScriptPath); err == nil {
+		if _, err := os.Lstat(K6ScriptPath); err != nil {
+			fmt.Println("Creating k6 script for kperf...")
 			// Create k6 script from a template
 			input, err := ioutil.ReadFile(K6ScriptTemplatePath)
 			if err != nil {
-				fmt.Println(err)
 				return "", "", fmt.Errorf("read k6 script template error: %w", err)
 			}
 			err = ioutil.WriteFile(K6ScriptPath, input, 0644)
 			if err != nil {
-				fmt.Println("Error creating", K6ScriptPath)
-				fmt.Println(err)
 				return "", "", fmt.Errorf("create k6 script error: %w", err)
 			}
 		}
@@ -434,10 +432,11 @@ func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpo
 		cmd.WriteString(inputs.LoadConcurrency)
 		cmd.WriteString(" -d ")
 		cmd.WriteString(inputs.LoadDuration)
-		cmd.WriteString(" -e KPERF_HOST ")
+		cmd.WriteString(" -e KPERF_HOST=")
 		cmd.WriteString(host)
-		cmd.WriteString(" -e KPERF_ENDPOINT ")
-		cmd.WriteString(host)
+		cmd.WriteString(" -e KPERF_ENDPOINT=")
+		cmd.WriteString(endpoint)
+		cmd.WriteString(" ")
 		cmd.WriteString(K6ScriptPath)
 		return cmd.String(), "", nil
 	}
