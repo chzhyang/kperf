@@ -50,9 +50,9 @@ import (
 )
 
 const (
-	LoadOutputFilename   = "ksvc_loading_time"
-	K6ScriptPath         = "k6_script_kperf.js"
-	K6ScriptTemplatePath = "templates/k6_script_template.js"
+	LoadOutputFilename  = "ksvc_loading_time"
+	K6ConfigPath        = "~/.config/kperf/k6_config.js"
+	K6ConfigTemplateURL = "https://raw.githubusercontent.com/chzhyang/kperf/https/config/kperf/k6_config.js"
 )
 
 func NewServiceLoadCommand(p *pkg.PerfParams) *cobra.Command {
@@ -413,17 +413,22 @@ func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpo
 		return cmd.String(), wrkLuaFilename, nil
 	}
 	if strings.EqualFold(inputs.LoadTool, "k6") {
-		// k6 script, default in "./k6_script_kperf.js"
-		if _, err := os.Lstat(K6ScriptPath); err != nil {
-			fmt.Println("Creating k6 script for kperf...")
-			// Create k6 script from a template
-			input, err := ioutil.ReadFile(K6ScriptTemplatePath)
+		// k6 config, default in "./k6_config_kperf.js"
+		if _, err := os.Lstat(K6ConfigPath); err != nil {
+			fmt.Println("Creating k6 config script for kperf...")
+			// Create k6 config script from a template
+			resp, err := http.Get(K6ConfigTemplateURL)
 			if err != nil {
-				return "", "", fmt.Errorf("read k6 script template error: %w", err)
+				return "", "", fmt.Errorf("download k6 config template error: %w", err)
 			}
-			err = ioutil.WriteFile(K6ScriptPath, input, 0644)
+			defer resp.Body.Close()
+			data, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				return "", "", fmt.Errorf("create k6 script error: %w", err)
+				return "", "", fmt.Errorf("read k6 config template error: %w", err)
+			}
+			err = ioutil.WriteFile(K6ConfigPath, data, 0644)
+			if err != nil {
+				return "", "", fmt.Errorf("create k6 config error: %w", err)
 			}
 		}
 
@@ -437,7 +442,7 @@ func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpo
 		cmd.WriteString(" -e KPERF_ENDPOINT=")
 		cmd.WriteString(endpoint)
 		cmd.WriteString(" ")
-		cmd.WriteString(K6ScriptPath)
+		cmd.WriteString(K6ConfigPath)
 		return cmd.String(), "", nil
 	}
 

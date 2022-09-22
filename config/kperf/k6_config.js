@@ -7,6 +7,7 @@ export const options = {
   insecureSkipTLSVerify: false,
   noConnectionReuse: true,
   noVUConnectionReuse: true,
+  // TODO： Delete before PR
   thresholds: {
     http_req_failed: ['rate<0.01'], // http errors should be less than 1%   
     http_req_duration: ['p(95)<1000'], // 95% of requests should be below 2500ms
@@ -20,5 +21,6 @@ export default function () {
     },
   };
   const resp = http.get(endpoint, params);
+  // TODO： Delete before PR
   console.log('tls: '+ resp.timings.tls_handshaking);
 }
