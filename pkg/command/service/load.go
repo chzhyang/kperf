@@ -51,8 +51,8 @@ import (
 
 const (
 	LoadOutputFilename  = "ksvc_loading_time"
-	K6ConfigPath        = "~/.config/kperf/k6_config.js"
-	K6ConfigTemplateURL = "https://raw.githubusercontent.com/chzhyang/kperf/https/config/kperf/k6_config.js"
+	K6ScriptPath        = "./k6_config.js"
+	K6ScriptTemplateURL = "https://raw.githubusercontent.com/chzhyang/kperf/https/config/kperf/k6_config.js"
 )
 
 func NewServiceLoadCommand(p *pkg.PerfParams) *cobra.Command {
@@ -363,87 +363,111 @@ func runExternalLoadTool(inputs pkg.LoadArgs, namespace string, svcName string, 
 	}()
 
 	runCmd := exec.Command("/bin/sh", "-c", cmd)
+	var stderr bytes.Buffer
+	runCmd.Stderr = &stderr
 	var loadOutput []byte
 	loadOutput, err = runCmd.Output()
 	output = string(loadOutput)
 	if err != nil {
-		return "", fmt.Errorf("failed to run load command: %s", err)
+		return "", fmt.Errorf("failed to run load command: %s, %s", err, stderr.String())
 	}
 	return output, nil
 }
 
+// heyCmdBuilder builds hey command to run
+func heyCmdBuilder(concurrency string, duration string, endpoint string, host string) (string, error) {
+	var cmd strings.Builder
+	cmd.WriteString("hey")
+	cmd.WriteString(" -c ")
+	cmd.WriteString(concurrency)
+	cmd.WriteString(" -z ")
+	cmd.WriteString(duration)
+	cmd.WriteString(" -host ")
+	cmd.WriteString(host)
+	cmd.WriteString(" ")
+	cmd.WriteString(endpoint)
+	return cmd.String(), nil
+}
+
+// wrkCmdBuilder builds wrk lua script and command to run
+func wrkCmdBuilder(concurrency string, duration string, endpoint string, host string, namespace string, svcName string) (string, string, error) {
+	// creat lua script to config host of URL
+	wrkLuaFilename := "./wrk_" + namespace + "_" + svcName + ".lua"
+	var content strings.Builder
+	content.WriteString("wrk.host = \"")
+	content.WriteString(host)
+	content.WriteString("\"")
+	data := []byte(content.String())
+	err := ioutil.WriteFile(wrkLuaFilename, data, 0644)
+	if err != nil {
+		return "", "", fmt.Errorf("write wrk lua script error: %w", err)
+	}
+
+	var cmd strings.Builder
+	cmd.WriteString("wrk")
+	cmd.WriteString(" -c ")
+	cmd.WriteString(concurrency)
+	cmd.WriteString(" -d ")
+	cmd.WriteString(duration)
+	cmd.WriteString(" -s ")
+	cmd.WriteString(wrkLuaFilename)
+	cmd.WriteString(" ")
+	cmd.WriteString(endpoint)
+	cmd.WriteString(" --latency")
+	return cmd.String(), wrkLuaFilename, nil
+}
+
+// k6CmdBuilder builds k6 script and command to run
+func k6CmdBuilder(concurrency string, duration string, endpoint string, host string) (string, error) {
+	if _, err := os.Lstat(K6ScriptPath); err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("cannot stat k6 config script %s: %w", K6ScriptPath, err)
+		}
+		// Download a k6 script template
+		resp, err := http.Get(K6ScriptTemplateURL)
+		if err != nil {
+			return "", fmt.Errorf("download k6 config template error: %w", err)
+		}
+		defer resp.Body.Close()
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("read k6 config template error: %w", err)
+		}
+		// Write template to k6 config script
+		err = ioutil.WriteFile(K6ScriptPath, data, 0644)
+		if err != nil {
+			return "", fmt.Errorf("create k6 config error: %w", err)
+		}
+	}
+
+	var cmd strings.Builder
+	cmd.WriteString("k6 run")
+	cmd.WriteString(" -u ")
+	cmd.WriteString(concurrency)
+	cmd.WriteString(" -d ")
+	cmd.WriteString(duration)
+	cmd.WriteString(" -e KPERF_HOST=")
+	cmd.WriteString(host)
+	cmd.WriteString(" -e KPERF_ENDPOINT=")
+	cmd.WriteString(endpoint)
+	cmd.WriteString(" ")
+	cmd.WriteString(K6ScriptPath)
+	return cmd.String(), nil
+}
+
 // loadCmdBuilder builds the command to run load tool, returns command and wrk lua script.
 func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpoint string, host string) (string, string, error) {
-	var cmd strings.Builder
-	var wrkLuaFilename string
 	if strings.EqualFold(inputs.LoadTool, "hey") {
-		cmd.WriteString("hey")
-		cmd.WriteString(" -c ")
-		cmd.WriteString(inputs.LoadConcurrency)
-		cmd.WriteString(" -z ")
-		cmd.WriteString(inputs.LoadDuration)
-		cmd.WriteString(" -host ")
-		cmd.WriteString(host)
-		cmd.WriteString(" ")
-		cmd.WriteString(endpoint)
-		return cmd.String(), "", nil
+		cmd, err := heyCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
+		return cmd, "", err
 	}
 	if strings.EqualFold(inputs.LoadTool, "wrk") {
-		// creat lua script to config host of URL
-		wrkLuaFilename = "./wrk_" + namespace + "_" + svcName + ".lua"
-		var content strings.Builder
-		content.WriteString("wrk.host = \"")
-		content.WriteString(host)
-		content.WriteString("\"")
-		data := []byte(content.String())
-		err := ioutil.WriteFile(wrkLuaFilename, data, 0644)
-		if err != nil {
-			return "", "", fmt.Errorf("write wrk lua script error: %w", err)
-		}
-		cmd.WriteString("wrk")
-		cmd.WriteString(" -c ")
-		cmd.WriteString(inputs.LoadConcurrency)
-		cmd.WriteString(" -d ")
-		cmd.WriteString(inputs.LoadDuration)
-		cmd.WriteString(" -s ")
-		cmd.WriteString(wrkLuaFilename)
-		cmd.WriteString(" ")
-		cmd.WriteString(endpoint)
-		cmd.WriteString(" --latency")
-		return cmd.String(), wrkLuaFilename, nil
+		cmd, wrkLua, err := wrkCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host, namespace, svcName)
+		return cmd, wrkLua, err
 	}
 	if strings.EqualFold(inputs.LoadTool, "k6") {
-		// k6 config, default in "./k6_config_kperf.js"
-		if _, err := os.Lstat(K6ConfigPath); err != nil {
-			fmt.Println("Creating k6 config script for kperf...")
-			// Create k6 config script from a template
-			resp, err := http.Get(K6ConfigTemplateURL)
-			if err != nil {
-				return "", "", fmt.Errorf("download k6 config template error: %w", err)
-			}
-			defer resp.Body.Close()
-			data, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				return "", "", fmt.Errorf("read k6 config template error: %w", err)
-			}
-			err = ioutil.WriteFile(K6ConfigPath, data, 0644)
-			if err != nil {
-				return "", "", fmt.Errorf("create k6 config error: %w", err)
-			}
-		}
-
-		cmd.WriteString("k6 run")
-		cmd.WriteString(" -u ")
-		cmd.WriteString(inputs.LoadConcurrency)
-		cmd.WriteString(" -d ")
-		cmd.WriteString(inputs.LoadDuration)
-		cmd.WriteString(" -e KPERF_HOST=")
-		cmd.WriteString(host)
-		cmd.WriteString(" -e KPERF_ENDPOINT=")
-		cmd.WriteString(endpoint)
-		cmd.WriteString(" ")
-		cmd.WriteString(K6ConfigPath)
-		return cmd.String(), "", nil
+		cmd, err := k6CmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
+		return cmd, "", err
 	}
 
 	return "", "", fmt.Errorf("kperf only support hey, wrk and k6 now")
