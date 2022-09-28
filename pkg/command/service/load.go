@@ -374,6 +374,38 @@ func runExternalLoadTool(inputs pkg.LoadArgs, namespace string, svcName string, 
 	return output, nil
 }
 
+// loadCmdBuilder builds the command to run load tool, returns command and wrk lua script.
+func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpoint string, host string) (string, string, error) {
+	switch {
+	case strings.EqualFold(inputs.LoadTool, "hey"):
+		cmd, err := heyCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
+		return cmd, "", err
+	case strings.EqualFold(inputs.LoadTool, "wrk"):
+		cmd, wrkLua, err := wrkCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host, namespace, svcName)
+		return cmd, wrkLua, err
+	case strings.EqualFold(inputs.LoadTool, "k6"):
+		cmd, err := k6CmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
+		return cmd, "", err
+	default:
+		return "", "", fmt.Errorf("kperf only support hey, wrk and k6 now")
+	}
+
+	// if strings.EqualFold(inputs.LoadTool, "hey") {
+	// 	cmd, err := heyCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
+	// 	return cmd, "", err
+	// }
+	// if strings.EqualFold(inputs.LoadTool, "wrk") {
+	// 	cmd, wrkLua, err := wrkCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host, namespace, svcName)
+	// 	return cmd, wrkLua, err
+	// }
+	// if strings.EqualFold(inputs.LoadTool, "k6") {
+	// 	cmd, err := k6CmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
+	// 	return cmd, "", err
+	// }
+
+	// return "", "", fmt.Errorf("kperf only support hey, wrk and k6 now")
+}
+
 // heyCmdBuilder builds hey command to run
 func heyCmdBuilder(concurrency string, duration string, endpoint string, host string) (string, error) {
 	var cmd strings.Builder
@@ -453,24 +485,6 @@ func k6CmdBuilder(concurrency string, duration string, endpoint string, host str
 	cmd.WriteString(" ")
 	cmd.WriteString(K6ScriptPath)
 	return cmd.String(), nil
-}
-
-// loadCmdBuilder builds the command to run load tool, returns command and wrk lua script.
-func loadCmdBuilder(inputs pkg.LoadArgs, namespace string, svcName string, endpoint string, host string) (string, string, error) {
-	if strings.EqualFold(inputs.LoadTool, "hey") {
-		cmd, err := heyCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
-		return cmd, "", err
-	}
-	if strings.EqualFold(inputs.LoadTool, "wrk") {
-		cmd, wrkLua, err := wrkCmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host, namespace, svcName)
-		return cmd, wrkLua, err
-	}
-	if strings.EqualFold(inputs.LoadTool, "k6") {
-		cmd, err := k6CmdBuilder(inputs.LoadConcurrency, inputs.LoadDuration, endpoint, host)
-		return cmd, "", err
-	}
-
-	return "", "", fmt.Errorf("kperf only support hey, wrk and k6 now")
 }
 
 // getReplicaResult get replicaResult by watching deployment, and append replicaResult to replicaResults
