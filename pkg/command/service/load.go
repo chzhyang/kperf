@@ -51,13 +51,8 @@ import (
 
 const (
 	LoadOutputFilename  = "ksvc_loading_time"
-<<<<<<< HEAD
 	K6ScriptPath        = "./k6_config.js"
 	K6ScriptTemplateURL = "https://raw.githubusercontent.com/chzhyang/kperf/https/config/kperf/k6_config.js"
-=======
-	K6ConfigPath        = "./k6_config.js"
-	K6ConfigTemplateURL = "https://raw.githubusercontent.com/chzhyang/kperf/https/config/kperf/k6_config.js"
->>>>>>> 6eec2fa... optimize command builder to run load tool
 )
 
 func NewServiceLoadCommand(p *pkg.PerfParams) *cobra.Command {
@@ -424,22 +419,12 @@ func wrkCmdBuilder(concurrency string, duration string, endpoint string, host st
 
 // k6CmdBuilder builds k6 script and command to run
 func k6CmdBuilder(concurrency string, duration string, endpoint string, host string) (string, error) {
-<<<<<<< HEAD
 	if _, err := os.Lstat(K6ScriptPath); err != nil {
 		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("cannot stat k6 config script %s: %w", K6ScriptPath, err)
 		}
 		// Download a k6 script template
 		resp, err := http.Get(K6ScriptTemplateURL)
-=======
-	// k6 config, default in "~/.config/kperf/k6_config.js"
-	if _, err := os.Lstat(K6ConfigPath); err != nil {
-		if !os.IsNotExist(err) {
-			return "", fmt.Errorf("cannot stat k6 config script %s: %w", K6ConfigPath, err)
-		}
-		// Download a k6 script template
-		resp, err := http.Get(K6ConfigTemplateURL)
->>>>>>> 6eec2fa... optimize command builder to run load tool
 		if err != nil {
 			return "", fmt.Errorf("download k6 config template error: %w", err)
 		}
@@ -449,11 +434,7 @@ func k6CmdBuilder(concurrency string, duration string, endpoint string, host str
 			return "", fmt.Errorf("read k6 config template error: %w", err)
 		}
 		// Write template to k6 config script
-<<<<<<< HEAD
 		err = ioutil.WriteFile(K6ScriptPath, data, 0644)
-=======
-		err = ioutil.WriteFile(K6ConfigPath, data, 0664)
->>>>>>> 6eec2fa... optimize command builder to run load tool
 		if err != nil {
 			return "", fmt.Errorf("create k6 config error: %w", err)
 		}
@@ -470,11 +451,7 @@ func k6CmdBuilder(concurrency string, duration string, endpoint string, host str
 	cmd.WriteString(" -e KPERF_ENDPOINT=")
 	cmd.WriteString(endpoint)
 	cmd.WriteString(" ")
-<<<<<<< HEAD
 	cmd.WriteString(K6ScriptPath)
-=======
-	cmd.WriteString(K6ConfigPath)
->>>>>>> 6eec2fa... optimize command builder to run load tool
 	return cmd.String(), nil
 }
 
