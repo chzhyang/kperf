@@ -86,6 +86,10 @@ type ScaleArgs struct {
 	Verbose          bool
 	Output           string
 	Https            bool
+	Method           string
+	Body             string
+	BodyFile         string
+	ContentType      string
 }
 
 type LoadArgs struct {

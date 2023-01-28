@@ -15,12 +15,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -88,6 +92,10 @@ kperf service scale --svc-perfix svc --range 1,200 --namespace ns --concurrency 
 	serviceScaleCommand.Flags().DurationVarP(&scaleArgs.RequestInterval, "wait", "", 2*time.Second, "Time to wait before retring to call the Knatice Service")
 	serviceScaleCommand.Flags().DurationVarP(&scaleArgs.RequestTimeout, "timeout", "", 2*time.Second, "Duration to wait for Knative Service to be ready")
 	serviceScaleCommand.Flags().BoolVarP(&scaleArgs.Https, "https", "", false, "Use https with TLS")
+	serviceScaleCommand.Flags().StringVarP(&scaleArgs.Method, "method", "m", "GET", "Request method, support GET and POST")
+	serviceScaleCommand.Flags().StringVarP(&scaleArgs.ContentType, "contentType", "T", "text/html", "Request ContentType")
+	serviceScaleCommand.Flags().StringVarP(&scaleArgs.Body, "data", "d", "", "Request body")
+	serviceScaleCommand.Flags().StringVarP(&scaleArgs.BodyFile, "dataFile", "D", "", "Request body file")
 	return serviceScaleCommand
 }
 
@@ -148,7 +156,7 @@ func scaleAndMeasure(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sca
 			sdur, ddur, err := runScaleFromZero(ctx, params, inputs, objs[ndx].Namespace, objs[ndx].Service)
 			if err == nil {
 				//measure
-				fmt.Printf("result of scale for service %s is %f, %f \n", objs[ndx].Service.Name, sdur.Seconds(), ddur.Seconds())
+				fmt.Printf("result of scale for service %s is %f s, %f s\n", objs[ndx].Service.Name, sdur.Seconds(), ddur.Seconds())
 				m.Lock()
 				result.Measurment = append(result.Measurment, pkg.ScaleFromZeroResult{
 					ServiceName:       objs[ndx].Service.Name,
@@ -192,9 +200,41 @@ func runScaleFromZero(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sc
 	}
 
 	client := http.Client{}
-	req, _ := http.NewRequest("GET", endpoint, nil)
+	// post jsonfile or jsondata
+	// var req *http.Request
+	method := strings.ToUpper(inputs.Method)
+	header := make(http.Header)
+	header.Set("Content-Type", inputs.ContentType)
+	var bodyAll []byte
+	//json data
+	if inputs.Body != "" {
+		bodyAll = []byte(inputs.Body)
+	}
+	//json file, priority: file >data
+	if inputs.BodyFile != "" {
+		slurp, err := ioutil.ReadFile(inputs.BodyFile)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			fmt.Fprintf(os.Stderr, "\n")
+			os.Exit(1)
+		}
+		bodyAll = slurp
+	}
+	req, err := http.NewRequest(method, endpoint, nil)
+	if err != nil {
+		fmt.Fprint(os.Stderr, err.Error())
+		fmt.Fprintf(os.Stderr, "\n")
+		os.Exit(1)
+	}
+	// set host header
 	req.Host = svc.Status.RouteStatusFields.URL.URL().Host
 
+	req.Header = header
+	req.Body = ioutil.NopCloser(bytes.NewReader(bodyAll))
+	// var latency time.Duration
+	// var latencyList []time.Duration
+
+	start := time.Now()
 	go func() {
 		_, err = Poll(client, req, inputs.MaxRetries, inputs.RequestInterval, inputs.RequestTimeout, endpoint)
 		if err != nil {
@@ -207,7 +247,8 @@ func runScaleFromZero(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sc
 		sdch <- struct{}{}
 	}()
 
-	start := time.Now()
+	// start := time.Now()
+
 	// Get the duration that takes to change deployment spec.
 	var dd time.Duration
 	for {
@@ -220,6 +261,10 @@ func runScaleFromZero(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sc
 				}
 			}
 		case <-sdch:
+			// latency = time.Since(start)
+			// fmt.Printf("Latency: %d ms\n", latency.Milliseconds())
+			// latencyList = append(latencyList, latency)
+			// fmt.Printf("Latency list: %#v\n", latencyList)
 			return time.Since(start), dd, nil
 		case err := <-errch:
 			return 0, 0, err
