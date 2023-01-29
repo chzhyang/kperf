@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	v1 "k8s.io/api/apps/v1"
@@ -92,6 +91,7 @@ kperf service scale --svc-perfix svc --range 1,200 --namespace ns --concurrency 
 	serviceScaleCommand.Flags().DurationVarP(&scaleArgs.RequestInterval, "wait", "", 2*time.Second, "Time to wait before retring to call the Knatice Service")
 	serviceScaleCommand.Flags().DurationVarP(&scaleArgs.RequestTimeout, "timeout", "", 2*time.Second, "Duration to wait for Knative Service to be ready")
 	serviceScaleCommand.Flags().BoolVarP(&scaleArgs.Https, "https", "", false, "Use https with TLS")
+	serviceScaleCommand.Flags().IntVarP(&scaleArgs.Iterations, "iterations", "i", 1, "Number of iterations to invoke the service")
 	serviceScaleCommand.Flags().StringVarP(&scaleArgs.Method, "method", "m", "GET", "Request method, support GET and POST")
 	serviceScaleCommand.Flags().StringVarP(&scaleArgs.ContentType, "contentType", "T", "text/html", "Request ContentType")
 	serviceScaleCommand.Flags().StringVarP(&scaleArgs.Body, "data", "d", "", "Request body")
@@ -153,21 +153,41 @@ func scaleAndMeasure(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sca
 	for i := 0; i < count; i++ {
 		go func(ndx int, m *sync.Mutex) {
 			defer wg.Done()
-			sdur, ddur, err := runScaleFromZero(ctx, params, inputs, objs[ndx].Namespace, objs[ndx].Service)
-			if err == nil {
-				//measure
-				fmt.Printf("result of scale for service %s is %f s, %f s\n", objs[ndx].Service.Name, sdur.Seconds(), ddur.Seconds())
-				m.Lock()
-				result.Measurment = append(result.Measurment, pkg.ScaleFromZeroResult{
-					ServiceName:       objs[ndx].Service.Name,
-					ServiceNamespace:  objs[ndx].Service.Namespace,
-					ServiceLatency:    sdur.Seconds(),
-					DeploymentLatency: ddur.Seconds(),
-				})
-				m.Unlock()
-			} else {
-				fmt.Printf("result of scale is error: %s", err)
+			fmt.Printf("Test service %s:\n", objs[ndx].Service.Name)
+			var svcLatencies, dpLatencies []int64
+			var svcAvg, dpAvg int64
+			for j := 0; j < inputs.Iterations; j++ {
+				sdur, ddur, err := runScaleFromZero(ctx, params, inputs, objs[ndx].Namespace, objs[ndx].Service)
+				if err == nil {
+					fmt.Printf("loop %d, service latency: %d ms, deployment latency: %d ms\n", j, sdur.Milliseconds(), ddur.Milliseconds())
+					svcLatencies = append(svcLatencies, sdur.Milliseconds())
+					dpLatencies = append(dpLatencies, ddur.Milliseconds())
+					//TODO: delete pod, continue loop after svc ready
+				} else {
+					fmt.Printf("result of scale is error: %s", err)
+					// TODO： how to catch err in go channel by wg
+					wg.Done()
+				}
 			}
+			fmt.Printf("Service Latency:\n")
+			if len(svcLatencies) > 0 {
+				latenciesHandler(svcLatencies)
+			}
+
+			fmt.Printf("Deployment Latency:\n")
+			if len(dpLatencies) > 0 {
+				latenciesHandler(dpLatencies)
+			}
+
+			m.Lock()
+			result.Measurment = append(result.Measurment, pkg.ScaleFromZeroResult{
+				ServiceName:      objs[ndx].Service.Name,
+				ServiceNamespace: objs[ndx].Service.Namespace,
+				// todo: min, max, avg latency
+				ServiceLatency:    float64(svcAvg / 1000),
+				DeploymentLatency: float64(dpAvg / 1000),
+			})
+			m.Unlock()
 		}(i, &m)
 	}
 	wg.Wait()
@@ -231,8 +251,6 @@ func runScaleFromZero(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sc
 
 	req.Header = header
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyAll))
-	// var latency time.Duration
-	// var latencyList []time.Duration
 
 	start := time.Now()
 	go func() {

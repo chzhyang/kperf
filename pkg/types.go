@@ -86,6 +86,7 @@ type ScaleArgs struct {
 	Verbose          bool
 	Output           string
 	Https            bool
+	Iterations       int
 	Method           string
 	Body             string
 	BodyFile         string

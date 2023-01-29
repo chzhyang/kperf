@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	bou.ke/monkey v1.0.2
+	github.com/HdrHistogram/hdrhistogram-go v1.1.2
 	github.com/hashicorp/hcl v1.0.0
 	github.com/kevinburke/go-bindata v3.23.0+incompatible
 	github.com/mitchellh/go-homedir v1.1.0

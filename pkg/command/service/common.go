@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -473,4 +474,38 @@ func getNodePortFromService(svc *corev1.Service, protocol string) (string, error
 	}
 
 	return "", fmt.Errorf("%s port of ingress service not found", protocol)
+}
+
+// todo: put into result
+func latenciesHandler(input []int64) {
+	// Get total, avg, min and max latency from latency list
+	n := len(input)
+	max := input[0]
+	min := input[0]
+	var sum int64
+	for i := 0; i < n; i++ {
+		if input[i] > max {
+			max = input[i]
+		}
+		if input[i] < min {
+			min = input[i]
+		}
+		sum += input[i]
+	}
+	avg := sum / int64(n)
+	fmt.Printf("Total: %d ms\n", sum)
+	fmt.Printf("Average: %d ms\n", avg)
+	fmt.Printf("Min: %d ms\n", min)
+	fmt.Printf("Max: %d ms\n", max)
+
+	// Get percentiles from latency list
+	histogram := hdrhistogram.New(1, 30000000, 3)
+	for _, sample := range input {
+		histogram.RecordValue(sample)
+	}
+	percentileValuesMap := histogram.ValueAtPercentiles([]float64{50.0, 95.0, 99.0, 99.9})
+	fmt.Printf("Percentile 50:   %d ms\n", percentileValuesMap[50.0])
+	fmt.Printf("Percentile 95:   %d ms\n", percentileValuesMap[95.0])
+	fmt.Printf("Percentile 99:   %d ms\n", percentileValuesMap[99.0])
+	fmt.Printf("Percentile 99.9: %d ms\n", percentileValuesMap[99.9])
 }
