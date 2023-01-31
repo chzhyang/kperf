@@ -72,25 +72,26 @@ type MeasureArgs struct {
 }
 
 type ScaleArgs struct {
-	Svc              string
-	SvcRange         string
-	Namespace        string
-	SvcPrefix        string
-	NamespaceRange   string
-	NamespacePrefix  string
-	Concurrency      int
-	MaxRetries       int
-	RequestInterval  time.Duration
-	RequestTimeout   time.Duration
-	ResolvableDomain bool
-	Verbose          bool
-	Output           string
-	Https            bool
-	Iterations       int
-	Method           string
-	Body             string
-	BodyFile         string
-	ContentType      string
+	Svc                string
+	SvcRange           string
+	Namespace          string
+	SvcPrefix          string
+	NamespaceRange     string
+	NamespacePrefix    string
+	Concurrency        int
+	MaxRetries         int
+	RequestInterval    time.Duration
+	RequestTimeout     time.Duration
+	ResolvableDomain   bool
+	Verbose            bool
+	Output             string
+	Https              bool
+	Iterations         int
+	ItertationWaitTime time.Duration
+	Method             string
+	Body               string
+	BodyFile           string
+	ContentType        string
 }
 
 type LoadArgs struct {
@@ -126,8 +127,19 @@ type ScaleResult struct {
 type ScaleFromZeroResult struct {
 	ServiceName       string
 	ServiceNamespace  string
-	ServiceLatency    float64 `json:"serviceLatency"`
-	DeploymentLatency float64 `json:"deploymentLatency"`
+	ServiceLatency    LatencyResult `json:"serviceLatency"`
+	DeploymentLatency LatencyResult `json:"deploymentLatency"`
+}
+
+type LatencyResult struct {
+	Max     int64
+	Min     int64
+	Total   int64
+	Average int64
+	P50     int64
+	P95     int64
+	P99     int64
+	P99_9   int64
 }
 
 type LoadResult struct {

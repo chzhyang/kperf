@@ -29,6 +29,7 @@ import (
 	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
 	"knative.dev/kperf/pkg"
 	"knative.dev/kperf/pkg/command/utils"
@@ -476,10 +477,12 @@ func getNodePortFromService(svc *corev1.Service, protocol string) (string, error
 	return "", fmt.Errorf("%s port of ingress service not found", protocol)
 }
 
-// todo: put into result
-func latenciesHandler(input []int64) {
-	// Get total, avg, min and max latency from latency list
+func latencyResultHandler(input []int64, result pkg.LatencyResult) {
+	// Get total, avg, min, max from latency list
 	n := len(input)
+	if n <= 0 {
+		return
+	}
 	max := input[0]
 	min := input[0]
 	var sum int64
@@ -498,7 +501,7 @@ func latenciesHandler(input []int64) {
 	fmt.Printf("Min: %d ms\n", min)
 	fmt.Printf("Max: %d ms\n", max)
 
-	// Get percentiles from latency list
+	// Get percentiles from latency list using hdrhistogram algorithm(https://github.com/HdrHistogram)
 	histogram := hdrhistogram.New(1, 30000000, 3)
 	for _, sample := range input {
 		histogram.RecordValue(sample)
@@ -508,4 +511,44 @@ func latenciesHandler(input []int64) {
 	fmt.Printf("Percentile 95:   %d ms\n", percentileValuesMap[95.0])
 	fmt.Printf("Percentile 99:   %d ms\n", percentileValuesMap[99.0])
 	fmt.Printf("Percentile 99.9: %d ms\n", percentileValuesMap[99.9])
+
+	result = pkg.LatencyResult{
+		Max:     max,
+		Min:     min,
+		Total:   sum,
+		Average: avg,
+		P50:     percentileValuesMap[50.0],
+		P95:     percentileValuesMap[95.0],
+		P99:     percentileValuesMap[99.0],
+		P99_9:   percentileValuesMap[99.9],
+	}
+}
+
+func cleanPod(ctx context.Context, params *pkg.PerfParams, servingClient servingv1client.ServingV1Interface, namespace, ksvcName string) (err error) {
+	// ksvc, err := servingClient.Services(namespace).Get(ctx, ksvcName, metav1.GetOptions{})
+	// if err != nil {
+	// 	return err
+	// }
+	// podClient := params.ClientSet.CoreV1().Pods(namespace)
+	labelPod := labels.SelectorFromSet(labels.Set(map[string]string{"serving.knative.dev/service=": ksvcName}))
+	listPodOpts := metav1.ListOptions{
+		// LabelSelector: "serving.knative.dev/service=" + ksvcName,
+		LabelSelector: labelPod.String(),
+	}
+	// todo
+	err = params.ClientSet.CoreV1().Pods(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, listPodOpts)
+	return err
+	// podList, err := podClient.List(ctx, options)
+	// if err != nil {
+	// 	return err
+	// }
+	// if len(podList.Items) == 0 {
+	// 	return nil
+	// } else {
+	// 	// delete pods
+	// 	for _, pod = range podList.Items {
+	// 		params.ClientSet.CoreV1().Pods(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, lsitOpts)
+	// 	}
+	// }
+
 }

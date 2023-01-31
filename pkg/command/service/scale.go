@@ -92,6 +92,7 @@ kperf service scale --svc-perfix svc --range 1,200 --namespace ns --concurrency 
 	serviceScaleCommand.Flags().DurationVarP(&scaleArgs.RequestTimeout, "timeout", "", 2*time.Second, "Duration to wait for Knative Service to be ready")
 	serviceScaleCommand.Flags().BoolVarP(&scaleArgs.Https, "https", "", false, "Use https with TLS")
 	serviceScaleCommand.Flags().IntVarP(&scaleArgs.Iterations, "iterations", "i", 1, "Number of iterations to invoke the service")
+	serviceScaleCommand.Flags().DurationVarP(&scaleArgs.ItertationWaitTime, "iteration-wait", "W", 10*time.Second, "Time to wait before calling the Knatice Service")
 	serviceScaleCommand.Flags().StringVarP(&scaleArgs.Method, "method", "m", "GET", "Request method, support GET and POST")
 	serviceScaleCommand.Flags().StringVarP(&scaleArgs.ContentType, "contentType", "T", "text/html", "Request ContentType")
 	serviceScaleCommand.Flags().StringVarP(&scaleArgs.Body, "data", "d", "", "Request body")
@@ -119,10 +120,10 @@ func ScaleServicesUpFromZero(params *pkg.PerfParams, inputs pkg.ScaleArgs) error
 	scaleFromZeroResult.KnativeInfo.IngressVersion = ingressInfo["version"]
 
 	rows := make([][]string, 0)
-	rows = append([][]string{{"svc_name", "svc_namespace", "svc_latency", "deployment_latency"}}, rows...)
+	rows = append([][]string{{"svc_name", "svc_namespace", "svc_latency(ms)", "deployment_latency(ms)"}}, rows...)
 
 	for _, m := range scaleFromZeroResult.Measurment {
-		rows = append(rows, []string{m.ServiceName, m.ServiceNamespace, fmt.Sprintf("%f", m.ServiceLatency), fmt.Sprintf("%f", m.DeploymentLatency)})
+		rows = append(rows, []string{m.ServiceName, m.ServiceNamespace, fmt.Sprintf("%d", m.ServiceLatency.Average), fmt.Sprintf("%d", m.DeploymentLatency.Average)})
 	}
 
 	// generate CSV, HTML and JSON outputs from rows and scaleFromZeroResult
@@ -154,38 +155,41 @@ func scaleAndMeasure(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sca
 		go func(ndx int, m *sync.Mutex) {
 			defer wg.Done()
 			fmt.Printf("Test service %s:\n", objs[ndx].Service.Name)
-			var svcLatencies, dpLatencies []int64
-			var svcAvg, dpAvg int64
+			var svcLatencyList, dpLatencyList []int64
+			var svcLatencyResult, dpLatencyResult pkg.LatencyResult
+			ns := objs[ndx].Namespace
+			ksvc := objs[ndx].Service
+			// Iterate 1~inputs.Iterations times to get latency(average, max, min...) of scaling service up from zero
 			for j := 0; j < inputs.Iterations; j++ {
-				sdur, ddur, err := runScaleFromZero(ctx, params, inputs, objs[ndx].Namespace, objs[ndx].Service)
+				// err = cleanPod(ctx, params, ksvcClient, ns, ksvc.Name)
+				// if err != nil {
+				// 	fmt.Printf("failed to delete %v/%v pod: %v\n", ns, ksvc.Name, err)
+				// 	return
+				// }
+				time.Sleep(inputs.ItertationWaitTime)
+				sdur, ddur, err := runScaleFromZero(ctx, params, inputs, ns, ksvc)
 				if err == nil {
 					fmt.Printf("loop %d, service latency: %d ms, deployment latency: %d ms\n", j, sdur.Milliseconds(), ddur.Milliseconds())
-					svcLatencies = append(svcLatencies, sdur.Milliseconds())
-					dpLatencies = append(dpLatencies, ddur.Milliseconds())
-					//TODO: delete pod, continue loop after svc ready
+					svcLatencyList = append(svcLatencyList, sdur.Milliseconds())
+					dpLatencyList = append(dpLatencyList, ddur.Milliseconds())
 				} else {
 					fmt.Printf("result of scale is error: %s", err)
 					// TODO： how to catch err in go channel by wg
-					wg.Done()
+					return
 				}
 			}
-			fmt.Printf("Service Latency:\n")
-			if len(svcLatencies) > 0 {
-				latenciesHandler(svcLatencies)
-			}
+			fmt.Printf("Service latency result:\n")
+			latencyResultHandler(svcLatencyList, svcLatencyResult)
 
-			fmt.Printf("Deployment Latency:\n")
-			if len(dpLatencies) > 0 {
-				latenciesHandler(dpLatencies)
-			}
+			fmt.Printf("Deployment latency result:\n")
+			latencyResultHandler(dpLatencyList, dpLatencyResult)
 
 			m.Lock()
 			result.Measurment = append(result.Measurment, pkg.ScaleFromZeroResult{
-				ServiceName:      objs[ndx].Service.Name,
-				ServiceNamespace: objs[ndx].Service.Namespace,
-				// todo: min, max, avg latency
-				ServiceLatency:    float64(svcAvg / 1000),
-				DeploymentLatency: float64(dpAvg / 1000),
+				ServiceName:       objs[ndx].Service.Name,
+				ServiceNamespace:  objs[ndx].Service.Namespace,
+				ServiceLatency:    svcLatencyResult,
+				DeploymentLatency: dpLatencyResult,
 			})
 			m.Unlock()
 		}(i, &m)
@@ -279,10 +283,6 @@ func runScaleFromZero(ctx context.Context, params *pkg.PerfParams, inputs pkg.Sc
 				}
 			}
 		case <-sdch:
-			// latency = time.Since(start)
-			// fmt.Printf("Latency: %d ms\n", latency.Milliseconds())
-			// latencyList = append(latencyList, latency)
-			// fmt.Printf("Latency list: %#v\n", latencyList)
 			return time.Since(start), dd, nil
 		case err := <-errch:
 			return 0, 0, err
